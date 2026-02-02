@@ -12,6 +12,7 @@ from b2sdk.v2 import InMemoryAccountInfo, B2Api
 APPLICATION_KEY_ID = "0054c1bbe6bcfe7000000001a"
 APPLICATION_KEY = "K005FlRPMrp14TclqSQhrLsYCUaarj8"
 BUCKET_NAME = "404-gen"
+BUCKET_FOLDER = "test/"
 
 def upload_glb_to_b2(glb_path: str, remote_file_name: Optional[str] = None, max_retries: int = 3):
     """
@@ -40,12 +41,12 @@ def upload_glb_to_b2(glb_path: str, remote_file_name: Optional[str] = None, max_
 
             result = bucket.upload_local_file(
                 local_file=local_file_path,
-                file_name= "test/" + remote_file_name,
+                file_name= BUCKET_FOLDER + remote_file_name,
                 content_type="model/gltf-binary"
             )
 
             print(f"Upload complete: {remote_file_name}")
-            print(f"File URL: {bucket.get_download_url("test/" + remote_file_name)}")
+            print(f"File URL: {bucket.get_download_url(BUCKET_FOLDER + remote_file_name)}")
             return result
             
         except Exception as e:
