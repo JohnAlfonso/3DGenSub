@@ -3,10 +3,7 @@ from loguru import logger
 import numpy as np
 from PIL import Image
 from OpenGL.GL import GL_LINEAR
-import importlib
-import os
-import sys
-# delay importing pyrender until runtime so we can try different headless backends
+import pyrender
 import trimesh
 import torch
 
@@ -73,13 +70,6 @@ def grid_from_glb_bytes(glb_bytes: bytes):
     logger.debug(f"Mesh loaded: {mesh}")
     
     logger.debug("Creating pyrender scene")
-    # import pyrender at runtime so we can switch headless backends if needed
-    try:
-        import pyrender
-    except Exception as e:
-        logger.debug(f"Initial import of pyrender failed: {e}")
-        raise
-
     scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
 
     # Convert to pyrender mesh
@@ -106,7 +96,7 @@ def grid_from_glb_bytes(glb_bytes: bytes):
     logger.debug("Camera added to scene")
 
     # Light
-    light = pyrender.DirectionalLight(color=[255,255,255], intensity=3.0)
+    light = pyrender.DirectionalLight(color=[255,255,255], intensity=6.0)
     light_node = scene.add(light)
     logger.debug("Light added to scene")
 
@@ -119,51 +109,24 @@ def grid_from_glb_bytes(glb_bytes: bytes):
     render_width = const.IMG_WIDTH * ssaa_factor
     render_height = const.IMG_HEIGHT * ssaa_factor
     logger.debug(f"Initializing OffscreenRenderer ({render_width}x{render_height}) with {ssaa_factor}x SSAA")
-    # Try to create an OffscreenRenderer. If there's no X display (common on VPS),
-    # attempt headless backends by setting PYOPENGL_PLATFORM to 'egl' or 'osmesa'.
-    try:
-        renderer = pyrender.OffscreenRenderer(render_width, render_height)
-        logger.info("OffscreenRenderer initialized successfully")
-    except Exception as exc:
-        logger.warning(f"OffscreenRenderer init failed: {exc}; attempting headless backends")
-
-        tried = []
-        renderer = None
-        for backend in ("egl", "osmesa"):
-            try:
-                os.environ["PYOPENGL_PLATFORM"] = backend
-                tried.append(backend)
-                # reload related modules so backend change is applied
-                for m in list(sys.modules.keys()):
-                    if m.startswith("pyglet") or m.startswith("pyrender") or m.startswith("OpenGL"):
-                        try:
-                            importlib.reload(sys.modules[m])
-                        except Exception:
-                            pass
-                # re-import pyrender
-                pyrender = importlib.import_module("pyrender")
-                renderer = pyrender.OffscreenRenderer(render_width, render_height)
-                logger.info(f"OffscreenRenderer initialized with PYOPENGL_PLATFORM={backend}")
-                break
-            except Exception as exc2:
-                logger.warning(f"Failed to initialize OffscreenRenderer with backend {backend}: {exc2}")
-                renderer = None
-
-        if renderer is None:
-            logger.error(f"Could not initialize an offscreen GL context. Tried: {tried}")
-            raise
+    renderer = pyrender.OffscreenRenderer(render_width, render_height)
+    logger.info("OffscreenRenderer initialized successfully")
 
     images = []
     view_count = 0
 
     for theta, phi in zip(theta_angles, phi_angles):
-        cam_pos = coords.spherical_to_cartesian(theta, phi, const.CAM_RAD)
+        cam_pos = coords.spherical_to_cartesian(theta, phi, const.CAM_RAD_MESH)
         pose = coords.look_at(cam_pos)
 
         scene.set_pose(cam_node, pose)
-        scene.set_pose(light_node, pose)
+        light_offset = np.array([1.0, 1.0, 0]) 
+        light_pos = cam_pos + light_offset
+        light_pose = coords.look_at(light_pos)
+        scene.set_pose(light_node, light_pose)
 
         image, _ = renderer.render(scene)
+        
         # Downsample with high-quality Lanczos filter for antialiasing
         image_pil = Image.fromarray(image).resize(
             (const.IMG_WIDTH, const.IMG_HEIGHT),
